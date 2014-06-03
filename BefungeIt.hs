@@ -26,10 +26,11 @@ data Interpreter = Interpreter {
 					program		:: Program,
 					direction	:: Direction,
 					stringMode	:: Bool,
-					randGen		:: StdGen				
+					randGen		:: StdGen,
+					running		:: Bool	
 				}
 
-type InterpreterFunction = State Interpreter
+type InterpreterFunction a = StateT Interpreter IO a
 
 ------------------ Instances so we can get a random direction ------------------
 
@@ -96,7 +97,7 @@ putCharacter i = do
 popStack :: Int -> InterpreterFunction [Int]
 popStack num = state updateFunc
 	where
-		updateFunc i@(Interpreter st _ _ _ _ _)
+		updateFunc i@(Interpreter st _ _ _ _ _ _)
 			| num <= length st	= (taken, i{stack = rest})		-- Stack underflow? Pattern match will fail, bubble up
 				where
 					(taken, rest) = splitAt num st
@@ -116,132 +117,113 @@ loadProgram f = do
 			return $ parseProgram fileText
 
 -- The most important function, the one that interprets instructions. Bool is "keep going"
-interpret :: InterpreterFunction (IO Bool)
+interpret :: InterpreterFunction ()
 interpret = do
-				i@(Interpreter st po pr _ str _) <- get
+				i@(Interpreter st po pr _ str _ _) <- get
 
-				inst <- return $ findInstruction pr po							-- The instruction that's up next
+				inst <- return $ findInstruction pr po				-- The instruction that's up next
 						
 				if inst == '"' then
-					put i{stringMode = not str} >> return True					-- Toggle string mode
+					put i{stringMode = not str}						-- Toggle string mode
 				else if str then
-					pushStack [ord inst] >> return True							-- Push character value onto stack								
+					pushStack [ord inst]							-- Push character value onto stack								
 				else
 					interpretInstruction inst
 
 -- Run a single instruction knowing we're not in string mode
-interpretInstruction :: Instruction -> InterpreterFunction (IO Bool)
+interpretInstruction :: Instruction -> InterpreterFunction ()
 interpretInstruction inst = do
-				i@(Interpreter st po pr di _ rg) <- get
+				i@(Interpreter st po pr di _ rg ru) <- get
 								
 				case inst of
-					'0' -> pushStack [0] >> return True
-					'1' -> pushStack [1] >> return True
-					'2' -> pushStack [2] >> return True
-					'3' -> pushStack [3] >> return True
-					'4' -> pushStack [4] >> return True
-					'5' -> pushStack [5] >> return True
-					'6' -> pushStack [6] >> return True
-					'7' -> pushStack [7] >> return True
-					'8' -> pushStack [8] >> return True
-					'9' -> pushStack [9] >> return True
+					'0' -> pushStack [0]
+					'1' -> pushStack [1]
+					'2' -> pushStack [2]
+					'3' -> pushStack [3]
+					'4' -> pushStack [4]
+					'5' -> pushStack [5]
+					'6' -> pushStack [6]
+					'7' -> pushStack [7]
+					'8' -> pushStack [8]
+					'9' -> pushStack [9]
 					'+' -> do
 							(a:b:_) <- popStack 2
 							pushStack [a + b]
-							return True
 					'-' -> do
 							(a:b:_) <- popStack 2
 							pushStack [b - a]
-							return True
 					'*' -> 	do
 							(a:b:_) <- popStack 2
 							pushStack [a * b]
-							return True
 					'/' -> do
 							(a:b:_) <- popStack 2
 							if a == 0
 								then fail "Divide by zero"
 								else pushStack [b `div` a]	
-							return True
 					'%' -> do
 							(a:b:_) <- popStack 2
 							if a == 0
 								then fail "Modulus by zero"
 								else pushStack [b `mod` a]	
-							return True
 					'!' -> do
 							[a] <- popStack 1
 							if a == 0
 								then pushStack [1]
 								else pushStack [0]
-							return True
 					'`' -> do
 							(a:b:_) <- popStack 2
 							if b > a
 								then pushStack [1]
 								else pushStack [0]
-							return True
-					'>' -> setDirection DRight >> return True
-					'<' -> setDirection DLeft >> return True
-					'^' -> setDirection DUp >> return True
-					'v' -> setDirection DDown >> return True
+					'>' -> setDirection DRight
+					'<' -> setDirection DLeft 
+					'^' -> setDirection DUp
+					'v' -> setDirection DDown 
 					'?' -> do													-- Set a new random direction
 							let (newDir, newGen) = random rg
 							put i{direction = newDir, randGen = rg}
-							return True
 					'_' -> do
 							[a] <- popStack 1
 							if a == 0
 								then setDirection DRight
 								else setDirection DLeft
-							return True
 					'|' -> do
 							[a] <- popStack 1
 							if a == 0
 								then setDirection DDown
 								else setDirection DUp
-							return True
 					':' -> do
 							[a] <- popStack 1
 							pushStack [a, a]
-							return True
 					'\\' -> do
 							(a:b:_) <- popStack 2
 							pushStack [b, a]
-							return True
-					'$' -> popStack 1 >> return True							-- Throw away stack value
+					'$' -> popStack 1 >> return ()								-- Throw away stack value
 					'.' -> do													-- Show top stack as integer
 							[a] <- popStack 1
 							liftIO $ putStr $ show a
-							return True
 					',' -> do													-- Show top stack as character
 							[a] <- popStack 1
 							liftIO $ putChar $ chr a
-							return True
 					'#' -> do													-- Skip a cell by doing an extra move
 							newPos <- return $ nextPosition po di
 							put i{position = newPos}
-							return True
 					'p' ->  do													-- Pop y, x, v then set program at (x,y) to v
 							(y:x:v:_) <- popStack 3
 							newProg <- return $ setInstruction pr (x, y) (chr v)
 							put i{program = newProg}
-							return True
 					'g' -> do													-- Get the value stored at (x,y)
 							(y:x:_) <- popStack 2
 							val <- return $ findInstruction pr (x, y)
 							pushStack [ord val]
-							return True
 					'&' -> do
 							num <- liftIO askUserForNum
 							pushStack [num]
-							return True
 					'~' -> do
 							c <- liftIO askUserForChar
 							pushStack [ord c]
-							return True
-					'@' -> return False											-- End program
-					' ' -> return True											-- Ignore spaces
+					'@' -> put i{running = False} 								-- Mark the program is over
+					' ' -> return ()											-- Ignore spaces
 
 ------------------ Our main function, to do the work ------------------
 
