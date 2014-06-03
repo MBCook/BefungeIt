@@ -221,7 +221,7 @@ interpretInstruction inst = do
 							pushStack [a, a]
 					'\\' -> do
 							(a:b:_) <- popStack 2
-							pushStack [b, a]
+							pushStack [a, b]
 					'$' -> popStack 1 >> return ()								-- Throw away stack value
 					'.' -> do													-- Show top stack as integer
 							[a] <- popStack 1
