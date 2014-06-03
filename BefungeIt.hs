@@ -143,7 +143,7 @@ interpreterLoop = do
 -- Handles if we're in string mode or not
 interpretWithStringGuard :: InterpreterFunction ()
 interpretWithStringGuard = do
-				i@(Interpreter st po pr _ str _ _) <- get
+				i@(Interpreter st po pr di str _ _) <- get
 
 				inst <- return $ findInstruction pr po				-- The instruction that's up next
 						
@@ -228,15 +228,21 @@ interpretInstruction inst = do
 							liftIO $ putStr $ show a
 					',' -> do													-- Show top stack as character
 							[a] <- popStack 1
+
 							liftIO $ putChar $ chr a
 					'#' -> updatePosition										-- Skip a cell by doing an extra move
 					'p' ->  do													-- Pop y, x, v then set program at (x,y) to v
 							(y:x:v:_) <- popStack 3
 							newProg <- return $ setInstruction pr (x, y) (chr v)
-							put i{program = newProg}
+							
+							updatedState <- get									-- Get the new state with the smaller stack
+							
+							put updatedState{program = newProg}
 					'g' -> do													-- Get the value stored at (x,y)
 							(y:x:_) <- popStack 2
+
 							val <- return $ findInstruction pr (x, y)
+
 							pushStack [ord val]
 					'&' -> do
 							num <- liftIO askUserForNum
