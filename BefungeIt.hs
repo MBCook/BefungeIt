@@ -79,11 +79,16 @@ setInstruction p (x, y) i = rowsBefore ++ (lineBefore ++ i:lineAfter):rowsAfter
 		
 -- Get a character from the user
 askUserForChar :: IO Char
-askUserForChar = getChar
+askUserForChar = do
+					putStr "Enter a character: "
+					hFlush stdout
+					getChar
 
 -- Get a number from the user
 askUserForNum :: IO Int
 askUserForNum = do
+					putStr "Enter a number: "
+					hFlush stdout
 					input <- getLine
 					return $ read input
 
