@@ -49,7 +49,7 @@ showProgram p = unlines p
 parseProgram :: String -> (Program, [Int])
 parseProgram s = (extendedLines ++ extraLines, startingStack)
 	where
-		(firstLine:otherLines)	= lines s													-- Extract the first line		
+		(firstLine:_:otherLines)	= lines s												-- Extract the first line		
 		extendLine l			= l ++ (replicate (80 - length l) ' ')						-- Function to pad lines to 80 characters
 		extendedLines			= map extendLine otherLines
 		extraLines				= replicate (25 - length extendedLines) (replicate 80 ' ')	-- Extra lines to make the program 25 rows
@@ -110,15 +110,34 @@ pushStack a = state $ \s -> ((), s{stack = (reverse a) ++ (stack s)})
 setDirection :: Direction -> InterpreterFunction ()
 setDirection d = state $ \s -> ((), s{direction = d})
 
+-- Update our position
+updatePosition :: InterpreterFunction ()
+updatePosition = do
+					i@(Interpreter _ po _ di _ _ _) <- get
+					put i{position = nextPosition po di}
+
 -- Get a program and initial stack from a file
 loadProgram :: String -> IO (Program, [Int])
 loadProgram f = do
 			fileText <- readFile f
 			return $ parseProgram fileText
 
--- The most important function, the one that interprets instructions. Bool is "keep going"
-interpret :: InterpreterFunction ()
-interpret = do
+-- The function that actually does our computation
+interpreterLoop :: InterpreterFunction ()
+interpreterLoop = do
+				i@(Interpreter _ po _ di _ _ ru) <- get				-- Get some stuff we need
+				
+				if not $ running i then
+					return ()										-- We're not running, so we're done
+				else
+					do
+						interpretWithStringGuard					-- Run the instruction
+						updatePosition								-- Update our position
+						interpreterLoop								-- Do it again
+
+-- Handles if we're in string mode or not
+interpretWithStringGuard :: InterpreterFunction ()
+interpretWithStringGuard = do
 				i@(Interpreter st po pr _ str _ _) <- get
 
 				inst <- return $ findInstruction pr po				-- The instruction that's up next
@@ -205,9 +224,7 @@ interpretInstruction inst = do
 					',' -> do													-- Show top stack as character
 							[a] <- popStack 1
 							liftIO $ putChar $ chr a
-					'#' -> do													-- Skip a cell by doing an extra move
-							newPos <- return $ nextPosition po di
-							put i{position = newPos}
+					'#' -> updatePosition										-- Skip a cell by doing an extra move
 					'p' ->  do													-- Pop y, x, v then set program at (x,y) to v
 							(y:x:v:_) <- popStack 3
 							newProg <- return $ setInstruction pr (x, y) (chr v)
@@ -225,6 +242,10 @@ interpretInstruction inst = do
 					'@' -> put i{running = False} 								-- Mark the program is over
 					' ' -> return ()											-- Ignore spaces
 
+-- Runs a Befunge program
+runProgram :: Interpreter -> IO ()
+runProgram = evalStateT interpreterLoop
+
 ------------------ Our main function, to do the work ------------------
 
 main = do
@@ -232,8 +253,18 @@ main = do
 	
 	putStrLn $ "Loading program from " ++ args !! 0
 	
-	(p, intialStack) <- loadProgram $ args !! 0
+	(p, initialStack) <- loadProgram $ args !! 0
 	
 	putStrLn "Here is the program:"
 	
 	putStrLn $ showProgram p
+	
+	randGen <- getStdGen
+	
+	initialState <- return $ Interpreter initialStack (0, 0) p DRight False randGen True
+	
+	putStrLn "Starting the interpreter...\n"
+
+	runProgram initialState
+
+	putStrLn "\n\nWe're done"
