@@ -8,6 +8,7 @@ import System.Random
 import System.IO
 import Data.Char
 import Control.Monad.Trans.State
+import Control.Monad.Trans
 
 ------------------ Some types we'll use ------------------
 
@@ -115,21 +116,21 @@ loadProgram f = do
 			return $ parseProgram fileText
 
 -- The most important function, the one that interprets instructions. Bool is "keep going"
-interpret :: InterpreterFunction IO Bool
+interpret :: InterpreterFunction (IO Bool)
 interpret = do
-				i@(Interpreter st po pr _ str _) <- gets
+				i@(Interpreter st po pr _ str _) <- get
 
 				inst <- return $ findInstruction pr po							-- The instruction that's up next
 						
 				if inst == '"' then
-					put i{stringMode = not st} >> return True					-- Toggle string mode
+					put i{stringMode = not str} >> return True					-- Toggle string mode
 				else if str then
 					pushStack [ord inst] >> return True							-- Push character value onto stack								
 				else
 					interpretInstruction inst
 
 -- Run a single instruction knowing we're not in string mode
-interpretInstruction :: Instruction -> InterpreterFunction IO Bool
+interpretInstruction :: Instruction -> InterpreterFunction (IO Bool)
 interpretInstruction inst = do
 				i@(Interpreter st po pr di _ rg) <- get
 								
@@ -185,7 +186,7 @@ interpretInstruction inst = do
 					'^' -> setDirection DUp >> return True
 					'v' -> setDirection DDown >> return True
 					'?' -> do													-- Set a new random direction
-							(newDir, newGen) <- random rg
+							let (newDir, newGen) = random rg
 							put i{direction = newDir, randGen = rg}
 							return True
 					'_' -> do
@@ -211,11 +212,11 @@ interpretInstruction inst = do
 					'$' -> popStack 1 >> return True							-- Throw away stack value
 					'.' -> do													-- Show top stack as integer
 							[a] <- popStack 1
-							putStr a
+							liftIO $ putStr $ show a
 							return True
 					',' -> do													-- Show top stack as character
 							[a] <- popStack 1
-							putChar $ chr a
+							liftIO $ putChar $ chr a
 							return True
 					'#' -> do													-- Skip a cell by doing an extra move
 							newPos <- return $ nextPosition po di
@@ -232,12 +233,12 @@ interpretInstruction inst = do
 							pushStack [ord val]
 							return True
 					'&' -> do
-							num <- askUserForNum
+							num <- liftIO askUserForNum
 							pushStack [num]
 							return True
 					'~' -> do
-							c <- askUserForChar
-							pushStack [c]
+							c <- liftIO askUserForChar
+							pushStack [ord c]
 							return True
 					'@' -> return False											-- End program
 					' ' -> return True											-- Ignore spaces
